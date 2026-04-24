@@ -66,6 +66,45 @@ Run these once, in order:
 To reset and re-run, re-execute `supabase_setup.sql` (the `DROP TABLE IF
 EXISTS ... CASCADE` at the top clears state), then steps 2–4 again.
 
+## Dashboard API (for the V0 designer)
+
+Once the pipeline has populated Supabase, serve the dashboard endpoints:
+
+```bash
+uvicorn api:app --reload --port 8000
+```
+
+Interactive API docs (Swagger): **http://localhost:8000/docs**
+
+That's the handoff page — every endpoint is listed with its parameters and
+you can try queries live. Responses are ready-to-plot JSON.
+
+**Available endpoints** (all GET, all return JSON):
+
+| Endpoint | Dashboard component |
+|---|---|
+| `/describe` | Populate filter dropdowns (categories, stores, regions) |
+| `/kpi` | KPI cards (revenue, units, AOV, AI-rescued revenue) |
+| `/sales-over-time` | Sales Over Time area chart |
+| `/sales-by-dimension` | Sales by Region bar chart (or channel / category / store) |
+| `/top-products` | Top Products table (supports growth) |
+| `/forecast-vs-actual` | Forecast vs Actual bar/line chart |
+| `/product-pairs` | Product Relationships / market basket |
+| `/category-mix` | Channel Mix radar chart |
+
+**Data window:** all endpoints accept `start` and `end` query params as
+ISO dates. Data is only available for **2026-02-20 through 2026-04-20**.
+
+**Example requests:**
+```bash
+curl "http://localhost:8000/kpi?start=2026-02-20&end=2026-04-20"
+curl "http://localhost:8000/sales-over-time?start=2026-02-20&end=2026-04-20&granularity=week&dimension=category"
+curl "http://localhost:8000/top-products?start=2026-03-21&end=2026-04-20&n=10&with_growth=true"
+```
+
+CORS is wide open for development (`allow_origins=["*"]`) so the V0
+preview URLs can call the API without extra setup. Tighten before prod.
+
 ## Demo queries (the PM-facing moment)
 
 **Before** — abbreviated product names in raw staging, no product metadata:

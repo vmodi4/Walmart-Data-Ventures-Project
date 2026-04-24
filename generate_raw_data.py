@@ -44,8 +44,8 @@ ECOM_ORDER_COUNT = 300
 WINDOW_START = datetime(2026, 2, 20, 0, 0, 0)
 WINDOW_END = datetime(2026, 4, 20, 23, 59, 59)
 
-DIRTY_VARIANT_RATE = 0.03      # ~3% of POS rows use an abbreviation
-DUPLICATE_RATE = 0.05          # ~5% of POS rows are exact duplicates
+DIRTY_VARIANT_RATE = 0.03  # ~3% of POS rows use an abbreviation
+DUPLICATE_RATE = 0.05  # ~5% of POS rows are exact duplicates
 AMBIGUOUS_TIMESTAMP_RATE = 0.30  # 30% use MM/DD/YYYY HH:MM format
 RANDOM_PROMO_DISCOUNT_RATE = 0.10  # 10% of rows get a promo discount
 BEVERAGE_PROMO_WEEK_START = date(2026, 3, 16)  # Mon of the promo week
@@ -54,14 +54,14 @@ BEVERAGE_PROMO_WEEK_START = date(2026, 3, 16)  # Mon of the promo week
 # unambiguously to exactly one product_id in the catalog — the AI resolution
 # step's job is to recover that mapping.
 DIRTY_VARIANTS: dict[str, str] = {
-    "GV WHL MLK 1GL":   "078742083421",
-    "GV 2% MLK 1GL":    "078742083438",
-    "OREO CKE 14OZ":    "044000032029",
-    "COKE 12PK":        "049000028911",
-    "LAYS CLSSC 8OZ":   "028400090513",
-    "DORITOS NCHO 9Z":  "028400420624",
-    "CHPS AHOY 13":     "044000032074",
-    "SPRITE 2L":        "049000050103",
+    "GV WHL MLK 1GL": "078742083421",
+    "GV 2% MLK 1GL": "078742083438",
+    "OREO CKE 14OZ": "044000032029",
+    "COKE 12PK": "049000028911",
+    "LAYS CLSSC 8OZ": "028400090513",
+    "DORITOS NCHO 9Z": "028400420624",
+    "CHPS AHOY 13": "044000032074",
+    "SPRITE 2L": "049000050103",
 }
 
 RETAIL_STORE_IDS = [s["store_id"] for s in STORES if s["store_type"] == "retail"]
@@ -132,14 +132,16 @@ def generate_pos_rows() -> list[dict]:
             product.retail_cents, force_discount=promo_active
         )
 
-        rows.append({
-            "transaction_id": f"POS-{store_id}-{uuid.uuid4().hex[:10]}",
-            "store_id": store_id,
-            "timestamp_raw": _format_timestamp(ts),
-            "upc_or_name": upc_or_name,
-            "quantity": quantity,
-            "price_charged_cents": price_cents,
-        })
+        rows.append(
+            {
+                "transaction_id": f"POS-{store_id}-{uuid.uuid4().hex[:10]}",
+                "store_id": store_id,
+                "timestamp_raw": _format_timestamp(ts),
+                "upc_or_name": upc_or_name,
+                "quantity": quantity,
+                "price_charged_cents": price_cents,
+            }
+        )
 
     # Simulate a POS retry bug: 5% of rows get re-emitted verbatim.
     dup_count = int(round(POS_ROW_COUNT * DUPLICATE_RATE))
@@ -150,8 +152,14 @@ def generate_pos_rows() -> list[dict]:
 
 
 def write_pos_csv(rows: list[dict], path: str) -> None:
-    fieldnames = ["transaction_id", "store_id", "timestamp_raw",
-                  "upc_or_name", "quantity", "price_charged_cents"]
+    fieldnames = [
+        "transaction_id",
+        "store_id",
+        "timestamp_raw",
+        "upc_or_name",
+        "quantity",
+        "price_charged_cents",
+    ]
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -194,21 +202,25 @@ def generate_ecommerce_orders(fake: Faker) -> list[dict]:
         for product in chosen_products:
             promo_code = random.choice(PROMO_CODES) if random.random() < 0.15 else None
             unit_price_cents = _price_with_maybe_discount(product.retail_cents)
-            items.append({
-                "sku": product.product_id,
-                "qty": random.randint(1, 3),
-                "unit_price_cents": unit_price_cents,
-                "promo_code": promo_code,
-            })
+            items.append(
+                {
+                    "sku": product.product_id,
+                    "qty": random.randint(1, 3),
+                    "unit_price_cents": unit_price_cents,
+                    "promo_code": promo_code,
+                }
+            )
 
-        orders.append({
-            "order_id": f"WM-2026-{fake.random_number(digits=7, fix_len=True)}",
-            "placed_at": ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "customer": {"id": customer_id, "loyalty_tier": loyalty_tier},
-            "items": items,
-            "fulfillment": fulfillment,
-            "store_id": store_id,
-        })
+        orders.append(
+            {
+                "order_id": f"WM-2026-{fake.random_number(digits=7, fix_len=True)}",
+                "placed_at": ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "customer": {"id": customer_id, "loyalty_tier": loyalty_tier},
+                "items": items,
+                "fulfillment": fulfillment,
+                "store_id": store_id,
+            }
+        )
     return orders
 
 

@@ -144,12 +144,18 @@ def seed_products(client: Client) -> None:
 
 
 def _baseline_units(category: str) -> int:
-    """Plausible weekly baseline units per product per store, by category."""
+    """Plausible weekly baseline units per product per store, by category.
+
+    Calibrated against generated POS+ecommerce volume (~4 units per
+    product-store-week on average). Beverages get a slight bump because of
+    the promo-week demand; Dairy is a touch lower because of smaller
+    single-serve units (yogurt) dominating that category.
+    """
     if category == "Beverages":
-        return random.randint(150, 200)
+        return random.randint(4, 7)
     if category in ("Cookies", "Chips"):
-        return random.randint(100, 160)
-    return random.randint(120, 180)  # Dairy
+        return random.randint(3, 6)
+    return random.randint(3, 5)  # Dairy
 
 
 def _forecast_weeks() -> list[date]:

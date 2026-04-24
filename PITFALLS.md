@@ -137,7 +137,38 @@ putting keys somewhere asking "is this file checked in?"
 
 ---
 
-## 6. RLS by default, key format by default — the Supabase setup surprise
+## 6. The silent 1000-row cap (PostgREST defaults lied to me)
+
+**Symptom.** First run of the analytical tools reported 1,000 transactions
+in the database — which seemed plausible but felt a little round. The
+dashboard tool said total revenue was $8,040 and every forecast category
+missed by 97-98%. The agent would have happily parroted those numbers to
+anyone who asked.
+
+**Root cause.** Supabase's PostgREST layer caps each response at 1,000 rows
+by default. A `select *` on a 1,741-row table returns 1,000 rows with a
+`200 OK` — no error, no warning, just silently clipped. The missing 741
+rows happened to be entirely the ecommerce channel, which is what made the
+forecast-vs-actual numbers look like a catastrophe (100% of ecommerce
+revenue was invisible to the aggregation).
+
+**The fix.** Paginate with `.range(start, end)` in a loop until a short
+page indicates end of table. Or use `Prefer: count=exact` and respect the
+`Content-Range` header. Or raise the `max-rows` setting server-side.
+
+**Takeaway.** "Reasonable-looking numbers" is a weaker safety signal than
+it feels like. When a tool output is slightly off but self-consistent, the
+model downstream will rationalize it — it has no way to know that 741 rows
+were missing. The only thing that caught it here was running a DELETE and
+seeing the actual row count in the response. Anything that aggregates data
+needs either a row-count sanity check against an independent source of
+truth, or a fetch path that can't silently truncate. This failure mode
+becomes catastrophic in agent systems: the AI confidently summarizes
+incomplete data as if it were complete.
+
+---
+
+## 7. RLS by default, key format by default — the Supabase setup surprise
 
 **Symptom.** Running `supabase_setup.sql` in a fresh Supabase project
 triggered a warning about Row Level Security. Even after the DDL
