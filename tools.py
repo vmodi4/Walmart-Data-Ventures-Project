@@ -450,6 +450,171 @@ def get_category_mix_by_channel(start_date: str, end_date: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Tool 9 — get_revenue_vs_cost (revenue + wholesale + gross margin over time)
+# ---------------------------------------------------------------------------
+
+
+def get_revenue_vs_cost(start_date: str, end_date: str,
+                         granularity: str = "week") -> Any:
+    """Time-series with retail revenue, wholesale cost, and gross margin per
+    bucket. Used for the layered area chart that shows the margin gap.
+
+    granularity: 'day', 'week', or 'month'.
+    """
+    valid_grain = {"day", "week", "month"}
+    if granularity not in valid_grain:
+        return {"error": f"granularity must be one of {sorted(valid_grain)}"}
+
+    data = _load_all()
+    tx = _filter_by_date(data["transactions"], start_date, end_date).copy()
+    if tx.empty:
+        return []
+
+    tx["wholesale_cost"] = tx["unit_price"] * tx["quantity"]
+
+    sale_dt = pd.to_datetime(tx["sale_date"])
+    if granularity == "day":
+        tx["bucket"] = sale_dt.dt.date.astype(str)
+    elif granularity == "week":
+        tx["bucket"] = sale_dt.dt.to_period("W").dt.start_time.dt.date.astype(str)
+    else:
+        tx["bucket"] = sale_dt.dt.to_period("M").dt.start_time.dt.date.astype(str)
+
+    grouped = tx.groupby("bucket").agg(
+        revenue=("revenue", "sum"),
+        wholesale_cost=("wholesale_cost", "sum"),
+    ).reset_index()
+    grouped["gross_margin"] = (grouped["revenue"] - grouped["wholesale_cost"]).round(2)
+    grouped["gross_margin_pct"] = ((grouped["gross_margin"] / grouped["revenue"]) * 100).round(1)
+    grouped["revenue"] = grouped["revenue"].round(2)
+    grouped["wholesale_cost"] = grouped["wholesale_cost"].round(2)
+    return grouped.sort_values("bucket").to_dict(orient="records")
+
+
+# ---------------------------------------------------------------------------
+# Tool 10 — get_product_margins
+# ---------------------------------------------------------------------------
+
+
+def get_product_margins(start_date: str, end_date: str,
+                         n: int = 20,
+                         category: str | None = None) -> Any:
+    """Per-product margin analysis: average sale_price - unit_price, plus
+    total units sold and revenue. Sorted descending by margin per unit.
+
+    Used for the horizontal bar chart that highlights highest-margin SKUs.
+    """
+    data = _load_all()
+    tx = _filter_by_date(data["transactions"], start_date, end_date)
+    if category:
+        tx = tx[tx["category"] == category]
+    if tx.empty:
+        return []
+
+    tx = tx.copy()
+    tx["margin_per_unit"] = tx["sale_price"] - tx["unit_price"]
+    tx["wholesale_cost"] = tx["unit_price"] * tx["quantity"]
+
+    grouped = tx.groupby(["product_id", "product_name", "category"]).agg(
+        margin_per_unit=("margin_per_unit", "mean"),
+        units_sold=("quantity", "sum"),
+        revenue=("revenue", "sum"),
+        wholesale_cost=("wholesale_cost", "sum"),
+    ).reset_index()
+    grouped["margin_per_unit"] = grouped["margin_per_unit"].round(2)
+    grouped["revenue"] = grouped["revenue"].round(2)
+    grouped["total_margin"] = (grouped["revenue"] - grouped["wholesale_cost"]).round(2)
+    grouped["margin_pct"] = ((grouped["total_margin"] / grouped["revenue"]) * 100).round(1)
+    grouped = grouped.drop(columns=["wholesale_cost"])
+
+    return grouped.sort_values("margin_per_unit", ascending=False).head(n).to_dict(orient="records")
+
+
+# ---------------------------------------------------------------------------
+# Tool 11 — get_category_breakdown (revenue + margin per category)
+# ---------------------------------------------------------------------------
+
+
+def get_category_breakdown(start_date: str, end_date: str) -> Any:
+    """Per-category aggregates suitable for a donut or treemap: revenue (area),
+    margin_pct (color), units sold. One row per category."""
+    data = _load_all()
+    tx = _filter_by_date(data["transactions"], start_date, end_date).copy()
+    if tx.empty:
+        return []
+
+    tx["wholesale_cost"] = tx["unit_price"] * tx["quantity"]
+    grouped = tx.groupby("category").agg(
+        revenue=("revenue", "sum"),
+        wholesale_cost=("wholesale_cost", "sum"),
+        units_sold=("quantity", "sum"),
+        product_count=("product_id", "nunique"),
+    ).reset_index()
+    grouped["total_margin"] = (grouped["revenue"] - grouped["wholesale_cost"]).round(2)
+    grouped["margin_pct"] = ((grouped["total_margin"] / grouped["revenue"]) * 100).round(1)
+    grouped["revenue"] = grouped["revenue"].round(2)
+    grouped["wholesale_cost"] = grouped["wholesale_cost"].round(2)
+    return grouped.sort_values("revenue", ascending=False).to_dict(orient="records")
+
+
+# ---------------------------------------------------------------------------
+# Tool 12 — get_daily_sales_velocity (calendar heatmap)
+# ---------------------------------------------------------------------------
+
+
+def get_daily_sales_velocity(start_date: str, end_date: str) -> Any:
+    """Per-day units sold and revenue across the date range. Includes zero
+    rows for days with no sales so the heatmap renders a continuous strip.
+    """
+    data = _load_all()
+    tx = _filter_by_date(data["transactions"], start_date, end_date)
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    all_days = pd.DataFrame({"sale_date": pd.date_range(start, end, freq="D").date})
+
+    if tx.empty:
+        all_days["units_sold"] = 0
+        all_days["revenue"] = 0.0
+        all_days["sale_date"] = all_days["sale_date"].astype(str)
+        return all_days.to_dict(orient="records")
+
+    grouped = tx.groupby("sale_date").agg(
+        units_sold=("quantity", "sum"),
+        revenue=("revenue", "sum"),
+    ).reset_index()
+    merged = all_days.merge(grouped, on="sale_date", how="left").fillna(0)
+    merged["units_sold"] = merged["units_sold"].astype(int)
+    merged["revenue"] = merged["revenue"].astype(float).round(2)
+    merged["sale_date"] = merged["sale_date"].astype(str)
+    return merged.sort_values("sale_date").to_dict(orient="records")
+
+
+# ---------------------------------------------------------------------------
+# Tool 13 — get_product_scatter (BCG quadrants)
+# ---------------------------------------------------------------------------
+
+
+def get_product_scatter(start_date: str, end_date: str) -> Any:
+    """One row per product with units sold (x), avg margin per unit (y),
+    total revenue (bubble size), and category (color). Feeds the
+    BCG-quadrant scatter plot."""
+    data = _load_all()
+    tx = _filter_by_date(data["transactions"], start_date, end_date).copy()
+    if tx.empty:
+        return []
+
+    tx["margin_per_unit"] = tx["sale_price"] - tx["unit_price"]
+    grouped = tx.groupby(["product_id", "product_name", "category"]).agg(
+        units_sold=("quantity", "sum"),
+        margin_per_unit=("margin_per_unit", "mean"),
+        revenue=("revenue", "sum"),
+    ).reset_index()
+    grouped["margin_per_unit"] = grouped["margin_per_unit"].round(2)
+    grouped["revenue"] = grouped["revenue"].round(2)
+    return grouped.sort_values("revenue", ascending=False).to_dict(orient="records")
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
@@ -463,6 +628,11 @@ DISPATCH = {
     "get_forecast_vs_actual": get_forecast_vs_actual,
     "get_product_pairs": get_product_pairs,
     "get_category_mix_by_channel": get_category_mix_by_channel,
+    "get_revenue_vs_cost": get_revenue_vs_cost,
+    "get_product_margins": get_product_margins,
+    "get_category_breakdown": get_category_breakdown,
+    "get_daily_sales_velocity": get_daily_sales_velocity,
+    "get_product_scatter": get_product_scatter,
 }
 
 
@@ -608,6 +778,75 @@ GEMINI_TOOLS = [
             name="get_category_mix_by_channel",
             description=("Revenue share across the 4 categories for each channel "
                          "(POS vs ecommerce). Suitable for a radar chart."),
+            parameters={
+                "type": "object",
+                "properties": _date_range_params(),
+                "required": ["start_date", "end_date"],
+            },
+        ),
+        genai_types.FunctionDeclaration(
+            name="get_revenue_vs_cost",
+            description=("Time-series with retail revenue, wholesale cost, and "
+                         "gross margin per bucket. Use for layered area charts "
+                         "showing the margin gap."),
+            parameters={
+                "type": "object",
+                "properties": {
+                    **_date_range_params(),
+                    "granularity": {
+                        "type": "string",
+                        "enum": ["day", "week", "month"],
+                        "description": "Time bucket size. Default 'week'.",
+                    },
+                },
+                "required": ["start_date", "end_date"],
+            },
+        ),
+        genai_types.FunctionDeclaration(
+            name="get_product_margins",
+            description=("Per-product margin: average sale_price minus unit_price, "
+                         "with units sold and revenue context. Sorted descending "
+                         "by margin per unit."),
+            parameters={
+                "type": "object",
+                "properties": {
+                    **_date_range_params(),
+                    "n": {"type": "integer", "description": "Number of products. Default 20."},
+                    "category": {
+                        "type": "string",
+                        "enum": ["Cookies", "Chips", "Beverages", "Dairy"],
+                        "description": "Optional category filter.",
+                    },
+                },
+                "required": ["start_date", "end_date"],
+            },
+        ),
+        genai_types.FunctionDeclaration(
+            name="get_category_breakdown",
+            description=("Per-category aggregates for donut/treemap charts: "
+                         "revenue (area), margin_pct (color), units sold."),
+            parameters={
+                "type": "object",
+                "properties": _date_range_params(),
+                "required": ["start_date", "end_date"],
+            },
+        ),
+        genai_types.FunctionDeclaration(
+            name="get_daily_sales_velocity",
+            description=("Per-day units sold and revenue across the date range, "
+                         "with zero rows for days that had no sales. Suitable "
+                         "for a calendar heatmap."),
+            parameters={
+                "type": "object",
+                "properties": _date_range_params(),
+                "required": ["start_date", "end_date"],
+            },
+        ),
+        genai_types.FunctionDeclaration(
+            name="get_product_scatter",
+            description=("One row per product with units sold (x), avg margin "
+                         "per unit (y), revenue (bubble size), and category. "
+                         "Feeds a BCG-quadrant scatter plot."),
             parameters={
                 "type": "object",
                 "properties": _date_range_params(),

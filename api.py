@@ -161,3 +161,61 @@ def category_mix(
     ecommerce). Shape: `{channel: [{category, revenue, share_pct}, ...]}`.
     Feeds the Channel Mix radar chart."""
     return tools.get_category_mix_by_channel(start, end)
+
+
+@app.get("/revenue-vs-cost", tags=["dashboard"])
+def revenue_vs_cost(
+    start: str = Query(..., example="2026-02-20"),
+    end: str = Query(..., example="2026-04-20"),
+    granularity: str = Query("week", pattern="^(day|week|month)$"),
+) -> Any:
+    """Time-series with retail revenue, wholesale cost, gross margin, and
+    margin pct per bucket. For the layered area chart that shows the
+    margin gap visually."""
+    return tools.get_revenue_vs_cost(start, end, granularity)
+
+
+@app.get("/product-margins", tags=["dashboard"])
+def product_margins(
+    start: str = Query(..., example="2026-02-20"),
+    end: str = Query(..., example="2026-04-20"),
+    n: int = Query(20, ge=1, le=50),
+    category: str | None = Query(None,
+                                 pattern="^(Cookies|Chips|Beverages|Dairy)$"),
+) -> Any:
+    """Per-product margin analysis: avg margin per unit + units + revenue,
+    sorted descending by margin per unit. For the horizontal margin bar chart."""
+    return tools.get_product_margins(start, end, n=n, category=category)
+
+
+@app.get("/category-breakdown", tags=["dashboard"])
+def category_breakdown(
+    start: str = Query(..., example="2026-02-20"),
+    end: str = Query(..., example="2026-04-20"),
+) -> Any:
+    """Per-category aggregates for donut or treemap: revenue (area),
+    margin_pct (color), units sold, product count."""
+    return tools.get_category_breakdown(start, end)
+
+
+@app.get("/daily-sales-velocity", tags=["dashboard"])
+def daily_sales_velocity(
+    start: str = Query(..., example="2026-02-20"),
+    end: str = Query(..., example="2026-04-20"),
+) -> Any:
+    """Per-day units and revenue across the window, with zero rows for empty
+    days. For the GitHub-style calendar heatmap.
+
+    Note: data window is ~60 days, so the heatmap renders as a 2-month strip,
+    not a year grid."""
+    return tools.get_daily_sales_velocity(start, end)
+
+
+@app.get("/product-scatter", tags=["dashboard"])
+def product_scatter(
+    start: str = Query(..., example="2026-02-20"),
+    end: str = Query(..., example="2026-04-20"),
+) -> Any:
+    """One row per product with units (x), margin_per_unit (y), revenue
+    (bubble size), category (color). For the BCG-quadrant scatter."""
+    return tools.get_product_scatter(start, end)

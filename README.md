@@ -91,6 +91,11 @@ you can try queries live. Responses are ready-to-plot JSON.
 | `/forecast-vs-actual` | Forecast vs Actual bar/line chart |
 | `/product-pairs` | Product Relationships / market basket |
 | `/category-mix` | Channel Mix radar chart |
+| `/revenue-vs-cost` | Revenue + wholesale layered chart (margin gap) |
+| `/product-margins` | Margin-per-product horizontal bar chart |
+| `/category-breakdown` | Category donut / treemap (revenue + margin) |
+| `/daily-sales-velocity` | Calendar heatmap (units sold per day) |
+| `/product-scatter` | BCG quadrant scatter (units × margin × revenue) |
 
 **Data window:** all endpoints accept `start` and `end` query params as
 ISO dates. Data is only available for **2026-02-20 through 2026-04-20**.
