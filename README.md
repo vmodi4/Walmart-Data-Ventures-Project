@@ -24,27 +24,32 @@ Three layers in Supabase:
 
 ## Setup
 
+All backend work happens inside `backend/`.
+
 1. **Create a Supabase project** and copy the project URL and an API key
    (service role key is easiest for development).
-2. **Get a Gemini API key** at https://aistudio.google.com/app/apikey (Google AI Studio — free tier covers this prototype).
+2. **Get a Gemini API key** at https://aistudio.google.com/app/apikey
+   (Google AI Studio — free tier covers this prototype).
 3. **Install dependencies:**
    ```bash
+   cd backend
    python -m venv .venv
    source .venv/bin/activate
    pip install -r requirements.txt
    ```
-4. **Configure environment:**
-   ```bash
-   cp .env.example .env
-   # Fill in SUPABASE_URL, SUPABASE_KEY, GEMINI_API_KEY
+4. **Create `backend/.env`** with three lines:
+   ```
+   SUPABASE_URL=https://your-project-ref.supabase.co
+   SUPABASE_KEY=your-service-role-or-publishable-key
+   GEMINI_API_KEY=your-gemini-key
    ```
 
 ## Run order
 
-Run these once, in order:
+Run these once, in order. All commands assume you are inside `backend/`.
 
 1. **Create schema** — open the Supabase SQL editor and paste/run the full
-   contents of `supabase_setup.sql`.
+   contents of `backend/supabase_setup.sql`.
 2. **Seed reference data:**
    ```bash
    python seed_reference_tables.py
@@ -54,14 +59,14 @@ Run these once, in order:
    ```bash
    python generate_raw_data.py
    ```
-   Writes `data/raw_pos.csv` (~1050 rows incl. duplicates) and
-   `data/raw_ecommerce.json` (~300 orders).
+   Writes `backend/data/raw_pos.csv` (~1050 rows) and
+   `backend/data/raw_ecommerce.json` (~300 orders).
 4. **Run the pipeline:**
    ```bash
    python pipeline.py
    ```
-   Loads raw data into staging, cleans, AI-resolves, and writes ~1600 rows to
-   `transactions`. Ends with a summary block.
+   Loads raw data into staging, cleans, AI-resolves, and writes ~1700 rows
+   to `transactions`. Ends with a summary block.
 
 To reset and re-run, re-execute `supabase_setup.sql` (the `DROP TABLE IF
 EXISTS ... CASCADE` at the top clears state), then steps 2–4 again.
@@ -71,6 +76,7 @@ EXISTS ... CASCADE` at the top clears state), then steps 2–4 again.
 Once the pipeline has populated Supabase, serve the dashboard endpoints:
 
 ```bash
+cd backend
 uvicorn api:app --reload --port 8000
 ```
 
@@ -176,12 +182,19 @@ The same structure extends in real production without rewrites:
 ## Layout
 
 ```
-.
-├── supabase_setup.sql          DDL for all 7 tables
-├── seed_reference_tables.py    Suppliers, stores, products, forecasts
-├── generate_raw_data.py        Writes data/raw_pos.csv + data/raw_ecommerce.json
-├── pipeline.py                 7-stage cleaning pipeline
-├── requirements.txt
-├── .env.example
-└── data/                       Generated raw files (gitignored)
+Walmart-Data-Project/
+├── README.md                       project orientation (this file)
+├── PITFALLS.md                     vibe-coding pitfalls hit during the build
+├── DESIGNER_HANDOFF.md             V0 brief + per-component prompts
+├── backend/                        Python pipeline + FastAPI
+│   ├── supabase_setup.sql          DDL for all 7 tables
+│   ├── seed_reference_tables.py    Suppliers, stores, products, forecasts
+│   ├── generate_raw_data.py        Writes data/raw_pos.csv + data/raw_ecommerce.json
+│   ├── pipeline.py                 7-stage cleaning pipeline
+│   ├── tools.py                    Analytical tools (agent + dashboard backing)
+│   ├── api.py                      FastAPI layer wrapping the tools
+│   ├── requirements.txt
+│   ├── .env                        local secrets (gitignored)
+│   └── data/                       generated raw files (gitignored)
+└── frontend/                       Next.js / V0 dashboard (populated by designer)
 ```
