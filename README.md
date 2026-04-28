@@ -102,6 +102,7 @@ you can try queries live. Responses are ready-to-plot JSON.
 | `/category-breakdown` | Category donut / treemap (revenue + margin) |
 | `/daily-sales-velocity` | Calendar heatmap (units sold per day) |
 | `/product-scatter` | BCG quadrant scatter (units × margin × revenue) |
+| `POST /agent` | Natural-language Q&A widget (uses all tools above) |
 
 **Data window:** all endpoints accept `start` and `end` query params as
 ISO dates. Data is only available for **2026-02-20 through 2026-04-20**.

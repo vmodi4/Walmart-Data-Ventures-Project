@@ -190,6 +190,46 @@ architecture is five minutes that saves an hour of silent failure.
 
 ---
 
+## 8. The rate limit you only see at agent demo time
+
+**Symptom.** The agent worked great for the first three or four test
+questions. The fifth threw `429 RESOURCE_EXHAUSTED` and the request died
+mid-loop. Each agent question makes 2-3 round trips to Gemini (one for
+the tool call, one or two for the synthesis), so a developer hammering
+the REPL while testing tears through the per-minute budget faster than
+expected.
+
+**Why.** Gemini's free tier on `gemini-2.5-flash` is **5 requests per
+minute**. That's effectively 1-2 agent questions per minute, since each
+question makes multiple calls. Different model from pitfall #3 — that
+one was `gemini-2.0-flash` with a literal `limit: 0`. This one is the
+standard free-tier rate cap on the model we actually use. Both are
+"free tier" stories with totally different shapes.
+
+**Mental-model gap.** "API key works" is a binary I had been treating as
+"all questions answered will work." It's actually closer to "single
+queries answered serially, slowly, will work." For an interactive agent
+demo where someone clicks through 4-5 questions in 30 seconds — exactly
+the demo scenario — the budget is too tight.
+
+**The fix.** Two clean options:
+
+1. Move to paid tier. `gemini-2.5-flash` is roughly $0.30 per million
+   input tokens, $2.50 per million output. A whole demo session costs a
+   few cents. Removes the rate cap entirely.
+2. Add app-level retry-with-backoff. Catch the 429, sleep the suggested
+   `retryDelay`, retry once. Smooths out bursts but doesn't help once
+   you've genuinely exceeded the budget over a sustained period.
+
+**Takeaway.** Free tiers are advertised in units that don't match how
+real apps query (per-minute caps don't survive bursty UIs). Plan the
+billing model around your actual usage shape — for an agent demo that's
+"a few questions in quick succession," not "one question per hour all
+day." This is also why production AI features almost always run on paid
+quotas: free tiers are for evaluation, not for shipping.
+
+---
+
 ## What these have in common
 
 None of the bugs above were failures of the AI tools, or of my skill with

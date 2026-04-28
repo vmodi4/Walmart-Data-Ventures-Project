@@ -21,8 +21,14 @@ from typing import Any
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
+import agent
 import tools
+
+
+class AgentQuestion(BaseModel):
+    question: str
 
 app = FastAPI(
     title="Walmart Data Ventures — Dashboard API",
@@ -41,7 +47,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -219,3 +225,22 @@ def product_scatter(
     """One row per product with units (x), margin_per_unit (y), revenue
     (bubble size), category (color). For the BCG-quadrant scatter."""
     return tools.get_product_scatter(start, end)
+
+
+# ---------------------------------------------------------------------------
+# Agent endpoint — natural-language Q&A over the same tools
+# ---------------------------------------------------------------------------
+
+
+@app.post("/agent", tags=["agent"])
+def agent_query(body: AgentQuestion) -> dict[str, Any]:
+    """Run a natural-language question through the Gemini agent. The agent
+    can call any of the dashboard tools as it answers.
+
+    Request body: `{"question": "Which category missed forecast most?"}`
+
+    Response: `{"answer": "...", "trace": [...], "iterations": int}`. The
+    `trace` is the ordered list of tool calls the agent made, useful for
+    showing reasoning in the UI ("the agent looked up forecast vs actual,
+    then drilled into Beverages...")."""
+    return agent.ask_agent(body.question)

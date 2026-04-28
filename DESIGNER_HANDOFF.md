@@ -96,6 +96,9 @@ Suggested layout (top to bottom):
 ├─────────────────────────────────────────────────────────┤
 │  Sales Velocity Heatmap (full width)                    │
 └─────────────────────────────────────────────────────────┘
+
+  + "Ask the Data" agent widget — floating chat button bottom-right,
+    opens a panel/modal. Available from any page state.
 ```
 
 ### Component 1 — KPI Strip
@@ -427,6 +430,69 @@ two-month strip rather than a year-long contribution graph. Lay it out as
 
 ---
 
+### Component 12 — "Ask the Data" agent widget
+
+**Endpoint:** `POST /agent` (note: this one is POST, not GET)
+
+**Request body:**
+```json
+{ "question": "Which category missed forecast the most last month?" }
+```
+
+**Sample response:**
+```json
+{
+  "answer": "Beverages missed its revenue forecast by 9.3%, coming in at $4,482.76 against a forecast of $4,942.17 from February 20 to April 20, 2026. Dairy beat its forecast the most at +29.8%.",
+  "trace": [
+    {
+      "tool": "get_forecast_vs_actual",
+      "args": {"start_date": "2026-02-20", "end_date": "2026-04-20", "dimension": "category"},
+      "result_preview": "[{\"category\": \"Beverages\", \"forecasted_revenue\": 4942.17, \"actual_revenue\": 4482.76, \"revenue_delta_pct\": -9.3}, ...]"
+    }
+  ],
+  "iterations": 2
+}
+```
+
+**Behavior:** the agent calls one or more analytical tools behind the
+scenes and synthesizes a natural-language answer. Each request takes
+roughly **2-5 seconds** to return — bake this into the loading UX. The
+`trace` array shows which tools were called and is the demo-magic moment
+("watch it think") — surface it but don't let it dominate the answer.
+
+**V0 prompt:**
+> Build an "Ask the Data" chat widget using shadcn/ui. Component layout:
+>
+> 1. A floating circular button bottom-right of the page with a chat
+>    icon (use lucide-react MessageCircle). Click opens a side panel
+>    or modal.
+> 2. Inside the panel: a header "Ask the Data", a chat-style message
+>    list area, and a text input + Send button at the bottom.
+> 3. Each user message renders as a right-aligned bubble. Each agent
+>    response renders as a left-aligned card containing:
+>    - The answer text (prominent, conversational, generous line height)
+>    - A collapsible "Show reasoning" expander that lists each tool call
+>      as a small monospace line: `tool_name(arg=value, ...)`
+> 4. While waiting on a response, show a typing-indicator (3 animated
+>    dots) in place of the answer card.
+> 5. If the request errors (e.g. rate limited), show an Alert with a
+>    friendly message: "The agent is taking a breather. Try again in a
+>    moment." — don't expose raw 429s.
+>
+> The component manages its own message history state. For now, use this
+> mock response shape (the technical owner will swap to real fetch later):
+> `{ answer: string, trace: Array<{ tool: string, args: object }>, iterations: number }`.
+>
+> Style: teal (#0EA5A5) accent for the floating button and Send button.
+> The reasoning expander text is small and muted gray. Round the panel
+> generously (rounded-2xl) and add a subtle shadow.
+>
+> Suggested starter prompts to render as clickable chips above the
+> input on first open: "Which category missed forecast?", "Top
+> performers last month", "How did beverages do during the promo week?"
+
+---
+
 ## 6. Final integration (technical owner)
 
 Once the designer has the components looking right, the integration
@@ -452,3 +518,5 @@ demo).
 - Data window: **2026-02-20 to 2026-04-20**. Endpoints accept any range
   inside this window via `start` and `end` ISO date params.
 - Response shapes are stable — anything not in this doc, check `/docs`.
+- Most endpoints are GET. **The agent endpoint is POST** with a JSON body
+  `{ "question": "..." }` — see component 12.
