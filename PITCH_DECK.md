@@ -278,24 +278,39 @@ Caption: 13 functions × 2 wrappers = 26 capabilities for the cost of 13.
 
 ### Slide 10 — The AI agent
 
-**Visual:** the loop diagram.
+**Visual:** the loop diagram with chained calls.
 ```
-USER                 GEMINI                  TOOLS
-─────                ──────                  ─────
-"Which category   →
-missed forecast?"
-                    decides which tool
-                    to call
-                  →  function_call:        →
-                     get_forecast_vs_actual
-                                            runs SQL,
-                                            returns rows
-                  ←  function_response       ←
-                    synthesizes answer
+USER                  GEMINI                       TOOLS
+─────                 ──────                       ─────
+"Which category    →
+had the biggest
+forecast miss
++ its top 3
+products?"
+                     decides which tool
+                     to call
+                   →  function_call:              →
+                      get_forecast_vs_actual
+                                                    runs SQL,
+                                                    returns rows
+                   ←  function_response             ←
+                     sees "Beverages -9.3%"
+                     needs product detail
+                   →  function_call:              →
+                      get_top_products(
+                        category="Beverages")
+                                                    runs SQL,
+                                                    returns rows
+                   ←  function_response             ←
+                     synthesizes both
 ←  "Beverages missed
-   by 9.3% at $4,482..."
+   by 9.3%. Top 3 in
+   that category:
+   Diet Coke, Coca-Cola,
+   Dasani..."
 ```
 Caption: ~80 lines of Python. No framework. Same 13 tools as the dashboard.
+The model decides each turn whether to call another tool or answer.
 
 **Talk track:**
 > The agent is a tool-calling loop, about 80 lines of Python. There's
