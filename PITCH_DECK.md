@@ -3,240 +3,416 @@
 A slide-by-slide outline for the PM-team presentation. Each slide has a
 title, what to put on it visually, and a talk track to memorize the gist of.
 
-The framing is **"vibe-coding pitfalls and how to manage AI-assisted
-product work"** — not "look how cool AI is." That framing is durable
-because PMs see ten AI demos a week and one honest post-mortem a month.
+**Structure:**
 
-Target length: **20-25 minutes**, leaves room for ~10 minutes of Q&A
-and demo. 15 slides total.
+- **Part 1 — The Build** (10 slides). Walk through the system bottom-up:
+  raw data → cleaning → schema → tech stack → tools layer → dashboard → agent.
+- **Part 2 — How I Did It & What Bit Me** (6 slides). Methodology, working
+  with the design partner, the pitfalls, takeaways.
+
+Target length: **22-25 minutes content + 5 minutes demo + Q&A**. 16 slides total.
 
 ---
 
-## ACT 1 — SETUP (3 slides)
+# PART 1 — THE BUILD (10 slides)
 
 ### Slide 1 — Title
 
 **Visual:**
-> The Pitfalls of Vibe-Coding an AI Pipeline
-> *Lessons from building a Walmart sales prototype, end to end, with AI*
+> Building an AI-Assisted Sales Analytics Pipeline for Walmart Data Ventures
 >
-> Vignesh Modigunta · Walmart Data Ventures
+> Vignesh Modigunta
 
 **Talk track:**
-> Today I'm going to walk you through a prototype I built — a sales data
-> pipeline, dashboard, and AI agent — but more importantly, the
-> mistakes I made along the way. Because if your team is going to ship
-> AI features this year, the failure modes you'll hit are not the
-> obvious ones.
+> Today I'm going to walk you through a prototype I built end-to-end —
+> a sales data pipeline, a database, a backend API, a dashboard, and an
+> AI agent — and then talk about how I built it, what worked, and the
+> specific things that bit me along the way. The first half is the
+> system. The second half is the lessons.
 
 ---
 
-### Slide 2 — What I built
+### Slide 2 — What I built (overview)
 
-**Visual:** the system architecture diagram
+**Visual:** the system diagram, top to bottom.
 ```
    raw POS CSV ─┐
-                ├── pipeline ──── Supabase ──── FastAPI ──── V0 dashboard
-   raw ecom JSON ┘     (clean)    (database)   (API + agent) (UI)
-                       ▲
+                ├─► CLEANING ──► SUPABASE ──► FASTAPI ──┬──► V0 DASHBOARD
+   raw ecom JSON ┘   (Python)    (Postgres)             │
+                       ▲                                └──► AI AGENT
                   AI product
                   resolution
-                  (Claude/Gemini)
+                  (Gemini)
 ```
-List the major components with one line each.
+Caption: 1 week build, 5 layers, ~2,000 lines of code.
 
 **Talk track:**
-> Quick context. The prototype simulates two months of POS and ecommerce
-> sales for a Walmart Supercenter — a few thousand transactions, dirty
-> data with mixed timestamp formats and abbreviated product names. A
-> Python pipeline cleans it, a small AI step resolves the abbreviated
-> SKUs that rule-based matching can't handle, and the cleaned data
-> lands in a Supabase Postgres table. On top of that there's a FastAPI
-> backend exposing 14 endpoints, and an LLM-powered agent that can
-> answer natural-language questions about the data. A V0-generated
-> dashboard ties it together.
+> Bird's-eye view of the whole thing. Two messy raw files come in — a
+> POS CSV with mixed timestamp formats and abbreviated product names,
+> and a nested ecommerce JSON with delivery orders that have no store
+> ID. They go through a Python cleaning pipeline. The cleaned rows
+> land in Postgres on Supabase. A FastAPI backend exposes 14 endpoints
+> on top of that data. A V0-generated dashboard reads those endpoints,
+> and a Gemini-powered AI agent answers natural-language questions
+> using the same set of tools.
 >
-> Total time to build: about a week. Total time without AI assistance:
-> realistically 4-6 weeks.
+> Total time: about a week. We'll work bottom-up.
 
 ---
 
-### Slide 3 — The headline lesson
+### Slide 3 — Raw data: what comes in
 
-**Visual:** large text, single sentence:
-> **AI doesn't eliminate rigor. It moves rigor into the prompt, the
-> model config, and the contract with the vendor.**
+**Visual:** side-by-side excerpts of the actual files.
+```
+raw_pos.csv                                  raw_ecommerce.json
+─────────────────                            ──────────────────────
+transaction_id, store_id, timestamp_raw,     {
+upc_or_name, quantity, price_charged_cents     "order_id": "WM-2026-...",
+                                                "placed_at": "2026-03-15T...",
+POS-ST002-a3f2..., ST002, "GV WHL MLK 1GL",     "customer": {"id": "c_938...",
+2026-03-15 14:22:10, 1, 348                                  "loyalty_tier": "plus"},
+POS-ST001-..., ST001, OREO CKE 14OZ,            "items": [{"sku": "...", ...}],
+03/15/2026 14:22, 2, 398                        "fulfillment": "delivery",
+                                                "store_id": null
+                                              }
+```
 
 **Talk track:**
-> The thing I want you to take away from today is this: vibe-coding
-> doesn't make you faster *because* you skip rigor — it makes you
-> faster *if* you know where to put the rigor. Skip it in the wrong
-> places and you ship plausible-looking nonsense.
+> The raw data is deliberately messy in the same ways real Walmart
+> data is messy. POS rows have *mixed timestamp formats* — some ISO,
+> some MM/DD/YYYY — because different register models serialize
+> differently. Some rows use the actual UPC; some use abbreviated
+> register entries like "GV WHL MLK 1GL" because someone keyed it in
+> manually. About 5% of rows are exact duplicates from POS retry bugs.
 >
-> The rest of this talk is concrete examples of where the rigor has
-> to live, and what happens when you skip it.
+> The ecommerce JSON is nested — orders contain item arrays — and
+> delivery orders have a null `store_id` because they ship from a
+> fulfillment center, not a retail store.
+>
+> Both feeds need to land in the same clean analytical table. That's
+> what the pipeline does.
 
 ---
 
-## ACT 2 — THE METHODOLOGY THAT WORKED (6 slides)
+### Slide 4 — Cleaning Stage 1: deterministic
 
-### Slide 4 — Plan before you code
+**Visual:** four bullet boxes, one per cleaning step.
+```
+1. Parse timestamps     2. Dedup on
+   try ISO → fallback      transaction_id +
+   MM/DD/YYYY              product + store
+                           (~5% removed)
 
-**Visual:** two-column comparison.
-
-| Old way | What worked here |
-|---|---|
-| Open IDE, start typing | Open ChatGPT/Claude chat, write a 1-page plan |
-| Discover scope as you go | Discover scope before code is written |
-| Ask Claude Code to build X | Ask Claude Code to build *this specific plan* |
+3. Normalize prices     4. Route null store_ids
+   cents → dollars         ecom delivery/ship
+                           → FC-EAST
+```
+Caption: handles ~97% of rows. $0/call. Reproducible.
 
 **Talk track:**
-> The first counterintuitive lesson: don't open Claude Code as your
-> first move. Open a chat interface — Claude or ChatGPT — and write a
-> comprehensive plan first. Schema. Endpoints. Cleaning stages. What
-> the data looks like. What edge cases matter.
+> Cleaning happens in two stages. The first is deterministic Python —
+> the boring stuff that pandas can do reliably. Parse the two
+> timestamp formats. Drop exact duplicates. Convert cents to dollars.
+> When an ecommerce order has no store ID — because it shipped, not
+> picked up — assign it to the fulfillment center.
 >
-> Then hand that plan to Claude Code as a constraint, not a wish.
-> Claude Code with a tight plan ships in hours. Claude Code with a
-> vague "build me a sales dashboard" prompt produces five days of
-> rewrites. The plan is the spec; the IDE is just the executor.
+> This stage handles 97% of the rows for free, fast, and
+> deterministically. No AI in sight. The point is to do as much as
+> possible with cheap reliable code before the AI layer kicks in.
 
 ---
 
-### Slide 5 — Tell the model to be harsh
+### Slide 5 — Cleaning Stage 2: AI product resolution
 
-**Visual:** quote-style block:
-> *"Be harsh on this idea, and tell me where it breaks."*
+**Visual:** before/after on a single row.
+```
+RAW:                          AI RESOLVED:
+upc_or_name = "GV WHL MLK     product_id = "078742083421"
+                1GL"          product_name = "Great Value
+                                              Whole Milk 1gal"
+```
+With a caption: *3% of rows. ~$0.001/call. The job rule-based matching can't do.*
 
 **Talk track:**
-> When you have your plan, give it back to a chat-based LLM and ask it
-> to attack it. Specifically tell it to be harsh, find what's missing,
-> identify what could go wrong. LLMs are sycophantic by default — they
-> will agree with you. You have to explicitly invite criticism.
+> Stage 2 is the AI step. About 3% of POS rows arrive with abbreviated
+> names that aren't UPCs — and there's no rule-based way to map "GV
+> WHL MLK 1GL" to its real product without a hand-maintained lookup
+> table that grows forever.
 >
-> In this project, that pattern caught at least three issues before I
-> wrote a line of code: an ambiguous schema decision, a missing edge
-> case in the data generator, and a chart in the original design that
-> the database literally couldn't support. All three would have been
-> half a day of rework each.
+> So we ask Gemini. For each unmatched identifier, the cleaning
+> pipeline sends a prompt with the catalog of valid products, and
+> Gemini returns the correct product_id. Successful matches: 6 out of
+> 8 unique abbreviations on the demo dataset. The other two get
+> dropped — we'd rather drop a row than fabricate a wrong match.
+>
+> The principle here is "AI on rails": narrow scope, clear input,
+> clear output, deterministic fallback. This is how every
+> production-grade AI feature I respect is actually built.
 
 ---
 
-### Slide 6 — Modern tooling collapses days into minutes
+### Slide 6 — Database schema: three layers
 
-**Visual:** stack diagram showing the tooling layers and what each
-saved.
+**Visual:** the three layers stacked.
+```
+┌─────────────────────────────────────────────────┐
+│ CLEAN ANALYTICAL                                │
+│  transactions                                   │
+│   the unified, enriched output                  │
+└─────────────────────────────────────────────────┘
+        ▲ joined + denormalized
+┌─────────────────────────────────────────────────┐
+│ REFERENCE                                       │
+│  suppliers, stores, products, forecasts         │
+│   master data, seeded once                      │
+└─────────────────────────────────────────────────┘
+        ▲ enriches
+┌─────────────────────────────────────────────────┐
+│ RAW STAGING                                     │
+│  raw_pos_transactions, raw_ecommerce_orders     │
+│   data exactly as it arrived                    │
+└─────────────────────────────────────────────────┘
+```
 
-| Layer | Tool | What it replaces |
+**Talk track:**
+> Three layers in the database, each with a single responsibility.
+> Raw staging holds the data exactly as it landed — dirty, deduped,
+> with original mixed timestamp formats. We keep that layer because
+> if the cleaning code has a bug, we can re-run from raw without
+> re-ingesting.
+>
+> Reference holds the master data: suppliers, stores, products, and
+> the forecasted volumes. Seeded once at project start, rarely
+> changes.
+>
+> Clean analytical is the table the dashboard and agent actually
+> query. It's denormalized — every row carries product name,
+> category, region — so reads are fast and the SQL stays simple.
+>
+> This three-layer pattern isn't novel; it's standard for any data
+> pipeline. The reason to call it out is that the AI cleaning step
+> only operates between layer 1 and layer 3. Layers 2 and 3 never
+> see the model's output directly — they only see deterministic
+> Python results that may *include* AI-resolved values, with a
+> deterministic fallback if the AI failed.
+
+---
+
+### Slide 7 — Tech stack: minutes, not days
+
+**Visual:** four-layer stack table.
+
+| Layer | Tool | Why |
 |---|---|---|
-| Database | Supabase | Manual Postgres setup, hosting, auth, REST API |
-| Backend | FastAPI | Hand-rolled routes, manual OpenAPI, manual CORS |
-| AI | Anthropic / Gemini SDK | Custom NLP for product matching |
-| Frontend | V0 | Manual React + Tailwind boilerplate |
+| Database | **Supabase** | Postgres + REST + auth in 5 min, free tier covers prototypes |
+| Backend | **FastAPI** | Auto-generated OpenAPI docs, native async, Pydantic validation |
+| AI | **Gemini 2.5 Flash** | Free tier, fast, reliable tool calling, low cost |
+| Frontend | **V0 + shadcn/ui** | AI-generated React with consistent design system |
 
 **Talk track:**
-> Three of the four layers used to be week-long efforts; now they're
-> minutes. Supabase: I had a Postgres database with a REST layer in
-> five minutes. FastAPI: 14 endpoints with auto-generated docs in an
-> afternoon. V0: a designer is producing real React code from prompts.
+> Each of these used to be a sprint of work. Now they're an afternoon.
+> Supabase: I had a Postgres database with a REST API in five minutes,
+> not two days. FastAPI: 14 endpoints with auto-generated interactive
+> docs in an afternoon. Gemini: tool calling in 80 lines of Python.
+> V0: a designer is producing real React code from prompts.
 >
-> What this means for product work: ideas that used to require an
-> engineer + a sprint can now be a prototype by Friday. The
-> bottleneck shifted from "do we have the time" to "do we have the
-> right idea."
+> The strategic point for product folks: ideas that used to need an
+> engineer plus a sprint can now be a prototype by Friday. The
+> bottleneck shifted from *time-to-build* to *clarity-of-idea*. If
+> you have a clean idea, you can have a working artifact this week.
+> If you don't, the tools won't save you.
 
 ---
 
-### Slide 7 — One tool surface, two consumers
+### Slide 8 — One tool surface, two consumers
 
-**Visual:** diagram:
+**Visual:** the architectural insight.
 ```
-        ┌─ /kpi GET endpoint ─────► Dashboard
-Python ─┤
-tools   └─ Gemini tool call ────► AI Agent
+              ┌── @app.get("/kpi") ──────────► DASHBOARD
+              │
+def get_kpi_summary(start, end):
+    # one Python function, one SQL query
+              │
+              └── Gemini tool call ──────────► AI AGENT
 ```
+Caption: 13 functions × 2 wrappers = 26 capabilities for the cost of 13.
 
 **Talk track:**
-> A small architectural decision that paid off enormously. Instead of
-> writing analytical queries twice — once for the dashboard endpoints
-> and once for the agent — I wrote them once as Python functions, and
-> wrapped them two ways. FastAPI converts each function to a REST
-> endpoint. The Gemini SDK exposes each function as a tool the agent
-> can call.
+> Here's the architectural decision I'm proudest of. Instead of
+> writing each analytical query twice — once for the dashboard, once
+> for the agent — I wrote each one as a Python function in a single
+> file, and wrapped that file two ways.
 >
-> One source of truth, two consumers. When I add a chart, I add one
-> Python function and both the dashboard and the agent get the
-> capability. This is the pattern for any product where you want
-> humans and AI agents to read from the same data spine.
+> FastAPI converts each function to a REST endpoint with one
+> decorator. The Gemini SDK exposes each function as a tool the
+> agent can call by name. Same Python function. Same SQL underneath.
+> Same source of truth.
+>
+> When I add a chart, I add one Python function and both consumers
+> get the capability. When I fix a bug, I fix it in one place. This
+> pattern is genuinely the right answer for any product where humans
+> and AI agents both need to read the same data spine — which, going
+> forward, is most products.
 
 ---
 
-### Slide 8 — Hybrid AI: deterministic first, AI for the last mile
+### Slide 9 — The dashboard
 
-**Visual:** two boxes side-by-side, with the cleaning stages.
-```
-DETERMINISTIC                        │   AI
-─────────────────────────────────────┼────────────────────────
-Parse timestamps                     │   Resolve abbreviated
-Drop duplicates                      │   product strings
-Normalize prices                     │   ("GV WHL MLK 1GL"
-Route nulls to fulfillment center    │    → product_id)
-─────────────────────────────────────┼────────────────────────
-~97% of rows handled                 │   ~3% of rows handled
-$0 per call                          │   ~$0.001 per call
-Fast, deterministic, auditable       │   Slow, probabilistic
-```
+**Visual:** screenshot of the V0 dashboard layout (or wireframe with the 11 components).
 
 **Talk track:**
-> The principle: AI is expensive, slow, and has tail risk. Use it
-> *surgically*, only on the cases where deterministic logic genuinely
-> can't handle the problem.
+> The dashboard is what the PM team and the supplier reps would
+> actually see. 11 components: KPI cards at the top, revenue and
+> margin trends in the middle, regional and category breakdowns,
+> forecast vs actual comparisons, a market basket view, and a daily
+> sales heatmap.
 >
-> In this prototype, 97% of the rows go through pure pandas
-> transformations — fast, free, reproducible. The AI step kicks in
-> only on the abbreviated product strings that a manual POS register
-> would generate, which rule-based matching can't handle without an
-> ever-growing hand-maintained lookup table.
->
-> This is "AI on rails." It also happens to be how every production
-> AI feature I respect is actually built — narrow, scoped, with a
-> deterministic fallback path. Not "wrap AI around the whole flow."
+> Built in V0 by my design partner. Each component is a React
+> component that fetches from one of the FastAPI endpoints. The
+> teal-accented "AI-Rescued Revenue" KPI is the prototype's unique
+> visualization — it shows in dollars how much revenue the AI
+> cleaning step preserved that rule-based matching would have
+> dropped.
 
 ---
 
-### Slide 9 — Data contracts unblock parallel work
+### Slide 10 — The AI agent
 
-**Visual:** timeline diagram.
+**Visual:** the loop diagram.
 ```
-Day 1        Day 2-4               Day 5
-─────        ─────────              ─────
-Agree on     [ Vignesh: build      [ Integration:
-endpoint     [   API + agent       [   wire dashboard
-shapes       [                     [   to real API
-             [ Designer: V0        [
-             [   components        [
-             [   with mock data    [
+USER                 GEMINI                  TOOLS
+─────                ──────                  ─────
+"Which category   →
+missed forecast?"
+                    decides which tool
+                    to call
+                  →  function_call:        →
+                     get_forecast_vs_actual
+                                            runs SQL,
+                                            returns rows
+                  ←  function_response       ←
+                    synthesizes answer
+←  "Beverages missed
+   by 9.3% at $4,482..."
 ```
+Caption: ~80 lines of Python. No framework. Same 13 tools as the dashboard.
 
 **Talk track:**
-> The other thing that compressed the timeline: I worked in parallel
-> with my design partner. But that only worked because we agreed on
-> the data shapes — what JSON each endpoint returns — before either
-> of us started. She designed against mock data that matched the
-> exact API response shape; I built against the same contract.
+> The agent is a tool-calling loop, about 80 lines of Python. There's
+> no framework, no LangChain, no SDK magic. The pattern is: send the
+> user's question + the tool definitions to Gemini. Gemini returns
+> either text — meaning it has an answer — or a structured request to
+> call one of the tools. If it's a tool call, our code runs the
+> matching Python function and sends the result back. Repeat until
+> the model returns text.
 >
-> When we met to integrate, it was 30 minutes of mechanical work, not
-> two days of "your component expects fields the API doesn't return."
-> Define the data contract first, then build in parallel. Same
-> principle as API-first development, applied to design.
+> The model doesn't actually execute anything. It just decides which
+> tool to call and with what arguments. We do the running. That's why
+> the loop is so short.
+>
+> The same 13 tools that power the dashboard endpoints power the
+> agent. Same data, same SQL, same source of truth. The agent is
+> essentially a natural-language interface over the dashboard.
 
 ---
 
-## ACT 3 — THE PITFALLS (3 slides — the heart of the talk)
+# PART 1.5 — DEMO (transitional)
 
-### Slide 10 — The new failure mode
+### Slide 11 — Live demo
 
-**Visual:** large text, dramatic spacing:
+**Visual:** screenshot or "Demo" placeholder.
+
+**Talk track:**
+> Quick live walkthrough — about 4 minutes:
+>
+> 1. The raw POS CSV with abbreviated product names visible
+> 2. The pipeline running, showing the AI resolving 6 of 8
+>    abbreviations live in the terminal
+> 3. The dashboard rendering the cleaned data
+> 4. The agent answering "which category missed forecast the most?"
+>    and showing its tool-call trace
+> 5. The agent declining to answer "what's our profit margin
+>    including shipping" because that data isn't in scope
+
+(Rehearse this. Have a runbook with the exact questions. Don't ad-lib.)
+
+---
+
+# PART 2 — HOW I DID IT & WHAT BIT ME (5 slides)
+
+### Slide 12 — Methodology: how I worked with Claude
+
+**Visual:** workflow diagram.
+```
+1. CHAT-BASED LLM (Claude / ChatGPT)        2. CLAUDE CODE / CODEX
+   Comprehensive plan                          Execute the plan
+   "Be harsh — what would break?"              "Build this exact spec"
+   Iterate until plan is bulletproof           ↓
+   ↓                                           Working code
+   Plan as document
+```
+
+**Talk track:**
+> The single most important methodology shift was *not opening Claude
+> Code first*. I'd open a chat interface — Claude or ChatGPT — and
+> write a comprehensive plan. Schema, endpoints, cleaning stages, edge
+> cases, all of it. Then I'd ask the LLM to be harsh on the plan —
+> tell it to find what's missing, what could break, what assumptions I
+> was making.
+>
+> LLMs are sycophantic by default. They will agree with a bad plan.
+> You have to explicitly invite criticism. That pattern caught at
+> least three issues here before I wrote a line of code: an ambiguous
+> schema decision, a chart in the original design that the database
+> couldn't support, and a missing edge case in the data generator.
+> Each of those would have been half a day of rework if I'd built
+> first and discovered later.
+>
+> Then — and only then — I'd hand the plan to Claude Code as a
+> *constraint*, not a wish. "Build this specific thing." That's where
+> the speed comes from. Claude Code with a tight plan ships in hours.
+> Claude Code with a vague brief produces five days of rewrites.
+
+---
+
+### Slide 13 — Working with my design partner
+
+**Visual:** parallel-track timeline.
+```
+Day 1               Day 2-4                  Day 5
+─────               ───────                  ─────
+Agree on            ┌─ Vignesh: build       Integration:
+endpoint            │   API + agent          wire dashboard
+shapes              │                        to real API
+                    │
+                    └─ Designer: V0          ~30 minutes,
+                        components             not 2 days
+                        with mock data
+                        matching real
+                        endpoint shapes
+```
+
+**Talk track:**
+> Same principle, applied across people. Before either of us started
+> building, we agreed on the data shapes — what JSON each endpoint
+> returns, what fields, what types. I produced a `DESIGNER_HANDOFF.md`
+> document with copy-paste-ready V0 prompts that included the exact
+> response shape for each component.
+>
+> She designed in V0 against mock data that matched those shapes
+> exactly. I built the API against the same contract. We met for
+> integration on day 5, and it was 30 minutes of mechanical work to
+> swap mock data for real fetch calls — not two days of "your
+> component expects fields the API doesn't return."
+>
+> This is API-first development applied to design. The contract is
+> the unblock. Define it first, build in parallel, integrate fast.
+
+---
+
+### Slide 14 — The new failure mode
+
+**Visual:** large text:
 > **The system returned a 200 OK.**
 >
 > **The numbers were wrong.**
@@ -244,152 +420,101 @@ shapes       [                     [   to real API
 > **Nothing told me out loud.**
 
 **Talk track:**
-> This is the failure mode you have to learn to see. In old-style
-> development, when something went wrong, you got a stack trace, a
-> red console line, a 500 error. Loud failures. Easy to fix.
+> Now the harder lesson. In old-style development, when something
+> went wrong, you got a stack trace, a 500 error, a console line.
+> Loud failures. Easy to fix.
 >
 > AI systems and the modern tools they sit on top of fail *quietly*.
-> The model returns plausible text that's wrong. The database returns
-> 1000 rows when you wanted 1741. The API returns 200 OK with stale
-> data. None of it shouts at you. You discover it when you delete the
+> The model returns plausible text that's wrong. The database
+> returns 1000 rows when you asked for 1741. The API returns 200 OK
+> with stale data. None of it shouts at you. You discover it when
+> downstream numbers look weird, or when you happen to delete the
 > table and notice the row count was different than you thought.
 >
-> The job of building reliably with AI is the job of forcing those
-> silent failures to be loud.
+> The job of building reliably with AI is the job of *forcing those
+> silent failures to be loud*. That's harder than it sounds, because
+> you don't know what to look for until you've been bitten.
 
 ---
 
-### Slide 11 — Concrete pitfalls
+### Slide 15 — Concrete pitfalls
 
-**Visual:** four quick vignettes (one per quadrant of the slide):
+**Visual:** four pitfalls in a 2x2 grid.
 
-| Pitfall | Symptom | Cause |
-|---|---|---|
-| **Underspecified prompt** | AI returned `UNKNOWN` for `SPRITE 2L` (a product that's literally in the catalog) | "Best matches" and "confident" are gestures, not specs |
-| **Thinking budget trap** | Gemini returned the single character `'0'` instead of a product_id | `max_output_tokens=50` was eaten by internal reasoning before the answer |
-| **Silent 1000-row truncation** | Dashboard showed $8K revenue. Real number was $14K. | PostgREST caps at 1000 rows by default; query worked, returned rows, silently clipped |
-| **"Free tier" means three different things** | API key worked. Then 429s. Then quota=0. Then RLS denied writes. | Free tier ≠ free tier across vendors and models |
+| | |
+|---|---|
+| **Underspecified prompt** — Gemini returned `UNKNOWN` for `SPRITE 2L`, a product that's literally in the catalog. "Best matches" is a gesture, not a spec. | **Thinking budget trap** — Gemini returned the single character `'0'` instead of a product_id. `max_output_tokens=50` was eaten by internal reasoning before the answer ever rendered. |
+| **PostgREST silent 1000-row cap** — dashboard reported $8K total revenue. Real number was $14K. Query returned 200 OK and silently truncated. | **"Free tier" means three different things** — quota=0 on one model, 5 RPM on another, RLS denying writes on a third. Same word, three failure modes. |
 
 **Talk track:**
-> Four representative pitfalls from this project. The full list is
-> eight. Each one is something where I had a plausible mental model,
-> the system did something different, and nothing alerted me until
-> downstream numbers looked wrong.
+> Four pitfalls from this project — the full list is eight, in the
+> repo as `PITFALLS.md`. Each one is a case where I had a plausible
+> mental model, the system did something different, and nothing
+> alerted me until downstream numbers looked off.
 >
-> Notice the pattern: none of these are AI failures. They're all
-> failures of *defaults* — the prompt's defaults, the model's
+> The pattern: none of these are AI failures specifically. They're
+> failures of *defaults*. The prompt's defaults, the model's
 > defaults, the database's defaults, the vendor's billing defaults.
 > Vibe-coding is fast partly because you accept defaults; that
 > speed comes with the bill that those defaults will eventually
-> disagree with you, quietly, in production.
+> disagree with you, quietly.
+>
+> Tracking these as a discipline — `PITFALLS.md` as a deliverable —
+> turns implicit team knowledge into onboarding material and turns
+> "the demo just works" into "the demo works because I caught these
+> eight things."
 
 ---
 
-### Slide 12 — Track pitfalls as a discipline
+### Slide 16 — Takeaways for PMs
 
-**Visual:** screenshot or excerpt of `PITFALLS.md`.
-
-**Talk track:**
-> One concrete practice I'd recommend if your team starts shipping
-> AI features: keep a running pitfalls document. Every time you hit
-> one of those silent-failure moments, write it down. Symptom, cause,
-> what you assumed, what was actually true, how you fixed it.
->
-> In this project I kept that as a markdown file in the repo. It
-> serves three purposes: it's a debugging knowledge base for future
-> me, it's onboarding material for whoever joins next, and — most
-> importantly for a presentation like this — it's an honest signal
-> to stakeholders that "the demo works because we caught these eight
-> things, not because nothing went wrong."
->
-> AI features without a pitfalls document are a rumor. AI features
-> with one are a system.
-
----
-
-## ACT 4 — CLOSE (3 slides)
-
-### Slide 13 — Demo
-
-**Visual:** screenshot of the dashboard with a sample agent question:
-> "Which category missed forecast the most last month?"
-
-**Talk track:**
-> Let me show you the system live. I'll walk through:
->
-> 1. The pipeline cleaning a deliberately-dirty raw input
-> 2. The AI step resolving an abbreviated SKU correctly
-> 3. The dashboard rendering the same data
-> 4. The agent answering a natural-language question by calling the
->    same tools the dashboard uses
-> 5. (If time) the agent recognizing an out-of-scope question and
->    declining to make up a number
->
-> Total: about 4 minutes.
-
-(You'll want to rehearse this so it lands clean. Don't ad-lib.)
-
----
-
-### Slide 14 — PM takeaways
-
-**Visual:** bulleted list, large type:
-> 1. **Prompts are specs.** Every place you write "the right thing" is a
->    place the model decides for you.
-> 2. **Plan before you code.** Two hours of planning saves five days of
->    rebuilding.
-> 3. **Tell the model to be harsh.** It will agree with you by default;
->    you have to invite the criticism.
-> 4. **Define data contracts before parallel work.** Same logic as API
->    contracts, applied across humans + AI.
-> 5. **Make silent failures loud.** Validate against ground truth, not
+**Visual:** numbered list, large type.
+> 1. **Plan in chat before opening Claude Code.** Two hours of
+>    planning saves five days of rebuilding.
+> 2. **Tell the model to be harsh.** It will agree with you by default.
+> 3. **Define data contracts before parallel work.** Same logic as
+>    API contracts, applied to humans + AI.
+> 4. **One tool surface, multiple consumers.** Build analytical logic
+>    once, expose it many ways.
+> 5. **AI on rails — deterministic first, AI for the last mile.**
+>    This is the production pattern.
+> 6. **Make silent failures loud.** Validate against ground truth, not
 >    plausibility. Track pitfalls as a discipline.
-> 6. **Hybrid AI — deterministic first, AI for the last mile.** This is
->    how production-grade AI features actually work.
 
 **Talk track:**
-> If you take six things back to your team from today, take these.
-> They generalize beyond this project — every AI product you ship will
-> hit some version of all six.
-
----
-
-### Slide 15 — Thank you / Q&A
-
-**Visual:**
-> Questions?
+> Six things to take back to your team. They generalize beyond this
+> project — every AI product you ship will hit some version of all
+> six. The team that ships AI features reliably will be the one that
+> internalizes these as habits, not the one with the best access to
+> models.
 >
-> Repo: [github.com/vigneshmodigunta/walmart-data-project](#)
-> Pitfalls doc: in the repo as `PITFALLS.md`
-
-**Talk track:**
-> Happy to take questions on any of this — the architecture, the
-> specific pitfalls, the methodology, or how this would apply to
-> something the Data Ventures team is actually working on.
+> Happy to take questions.
 
 ---
 
-## Things I'd actively avoid in this deck
+## Appendix — things to actively avoid in this deck
 
-- **Don't lead with "AI is amazing."** Every PM in that room has heard
-  that pitch. Lead with honesty: "here's what was hard."
+- **Don't lead with "AI is amazing."** Every PM in the room has heard
+  that pitch. Lead with what you built and what was hard.
 - **Don't skip the demo.** This entire talk lands stronger if there's
   a working live demo, even a 2-minute one. PMs trust working things
   over described things.
-- **Don't use the word "agentic."** It's a tell that you're using
-  marketing language instead of technical language. "Agent" is fine
-  because it's accurate; "agentic workflows" is buzzwordy.
-- **Don't claim AI will replace anything.** That's an irrelevant
-  argument and gets people defensive. Frame it as "AI accelerates
-  building, the rigor moves to a different place."
+- **Don't use the word "agentic."** Marketing word, not technical.
+  "Agent" is fine because it's accurate.
+- **Don't claim AI replaces anything.** Frame it as "AI accelerates
+  building; rigor moves to a different place."
+- **Don't apologize for the simulated data.** Lead with "I simulated
+  realistic data so the cleaning challenges are real" — the
+  simulation is part of the rigor, not a limitation.
 
-## Things to rehearse
+## Appendix — things to rehearse
 
-- The **demo flow** specifically. Have a runbook with the exact
-  questions you'll ask the agent and the order of clicks. Live demos
-  fail when ad-libbed.
-- The **SPRITE 2L story** — that's the most teachable concrete pitfall
-  and you'll come back to it. Get the framing tight.
-- The transition from slide 9 (parallel work) to slide 10 (silent
-  failures). That's the inflection point of the talk and needs a
-  clean handoff.
+- The **demo flow.** Have a runbook with exact questions and click
+  order. Live demos fail when ad-libbed.
+- The **SPRITE 2L story.** That's the most teachable concrete pitfall
+  and recurs throughout. Get the framing tight.
+- The **tech stack rationale slide (slide 7).** Don't read the table
+  — talk to the strategic point at the bottom (the bottleneck shift).
+- The **transition from Slide 11 (demo) to Slide 12 (methodology).**
+  This is the hinge of the talk. Land it cleanly: "you've seen the
+  artifact — here's how I built it that fast."
