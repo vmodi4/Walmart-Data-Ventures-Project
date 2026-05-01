@@ -7,19 +7,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
-
-// ── Types ──────────────────────────────────────────────────────────────────────
-
-interface ToolCall {
-  tool: string
-  args: Record<string, unknown>
-}
-
-interface AgentResponse {
-  answer: string
-  trace: ToolCall[]
-  iterations: number
-}
+import { api, type AgentResponse, type AgentToolCall as ToolCall } from "@/lib/api"
 
 interface UserMessage {
   role: "user"
@@ -36,45 +24,6 @@ interface ErrorMessage {
 }
 
 type Message = UserMessage | AgentMessage | ErrorMessage
-
-// ── Mock agent ─────────────────────────────────────────────────────────────────
-
-const MOCK_RESPONSES: AgentResponse[] = [
-  {
-    answer:
-      "Chips missed forecast by 5.4% ($8.2K below target) and Dairy fell short by 6.2% ($6.5K below). Both categories saw wholesale cost increases that weren't offset by price adjustments.",
-    trace: [
-      { tool: "query_forecast_table", args: { filters: { period: "last_60d" } } },
-      { tool: "compute_delta", args: { group_by: "category", metric: "revenue" } },
-    ],
-    iterations: 2,
-  },
-  {
-    answer:
-      "Top performers last month were Oreo Double Stuf ($156.2K, 38.4% margin) and Gatorade Thirst Quencher ($118.5K, 44.7% margin). Both exceeded forecast and drove the strongest margin-per-unit numbers in their categories.",
-    trace: [
-      { tool: "query_product_table", args: { period: "last_30d", order_by: "revenue", limit: 5 } },
-      { tool: "enrich_with_margin", args: { join: "cost_table" } },
-    ],
-    iterations: 2,
-  },
-  {
-    answer:
-      "Beverages revenue jumped 18% during the promo week vs the prior week, driven largely by Gatorade. Units sold increased 2.3× but margin per unit compressed from $1.51 to $1.12 due to the promotional discount depth.",
-    trace: [
-      { tool: "query_promo_calendar", args: { category: "Beverages" } },
-      { tool: "compare_weeks", args: { metric: ["revenue", "units_sold", "margin_per_unit"] } },
-      { tool: "attribute_to_sku", args: { top_n: 3 } },
-    ],
-    iterations: 3,
-  },
-]
-
-async function mockFetch(prompt: string): Promise<AgentResponse> {
-  await new Promise((r) => setTimeout(r, 1400))
-  const idx = Math.floor(Math.random() * MOCK_RESPONSES.length)
-  return MOCK_RESPONSES[idx]
-}
 
 // ── Subcomponents ──────────────────────────────────────────────────────────────
 
@@ -167,7 +116,7 @@ export function AskTheData() {
     setLoading(true)
 
     try {
-      const response = await mockFetch(text)
+      const response = await api.askAgent(text)
       setMessages((prev) => [...prev, { role: "agent", response }])
     } catch {
       setMessages((prev) => [...prev, { role: "error" }])

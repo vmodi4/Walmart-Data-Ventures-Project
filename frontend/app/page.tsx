@@ -11,99 +11,90 @@ import { AskTheData } from "@/components/ask-the-data"
 import { AgentChat } from "@/components/agent-chat"
 import { DashboardToolbar } from "@/components/dashboard-toolbar"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { api } from "@/lib/api"
 
-const sampleData = {
-  total_revenue: 1248750,
-  total_units_sold: 15832,
-  average_order_value: 78.9,
-  ai_rescued_revenue: 187312,
-  ai_rescued_revenue_pct: 15.0,
-}
+export const revalidate = 3600
 
-const chartData: RevenueDataPoint[] = [
-  { bucket: "2024-03-02", revenue: 12500, wholesale_cost: 8750, gross_margin: 3750, gross_margin_pct: 30.0 },
-  { bucket: "2024-03-09", revenue: 14200, wholesale_cost: 9940, gross_margin: 4260, gross_margin_pct: 30.0 },
-  { bucket: "2024-03-16", revenue: 11800, wholesale_cost: 8260, gross_margin: 3540, gross_margin_pct: 30.0 },
-  { bucket: "2024-03-23", revenue: 16500, wholesale_cost: 11220, gross_margin: 5280, gross_margin_pct: 32.0 },
-  { bucket: "2024-03-30", revenue: 18200, wholesale_cost: 12376, gross_margin: 5824, gross_margin_pct: 32.0 },
-  { bucket: "2024-04-06", revenue: 15800, wholesale_cost: 10744, gross_margin: 5056, gross_margin_pct: 32.0 },
-  { bucket: "2024-04-13", revenue: 19500, wholesale_cost: 12675, gross_margin: 6825, gross_margin_pct: 35.0 },
-  { bucket: "2024-04-20", revenue: 21200, wholesale_cost: 13780, gross_margin: 7420, gross_margin_pct: 35.0 },
-]
+export default async function Home() {
+  const [
+    kpi,
+    revenueVsCost,
+    categoryBreakdown,
+    regions,
+    productMargins,
+    productScatter,
+    forecast,
+    categoryMix,
+    topProducts,
+  ] = await Promise.all([
+    api.kpi(),
+    api.revenueVsCost(),
+    api.categoryBreakdown(),
+    api.salesByDimension(undefined, "region"),
+    api.productMargins(undefined, 8),
+    api.productScatter(),
+    api.forecastVsActual(undefined, "category"),
+    api.categoryMix(),
+    api.topProducts({ start: "2026-03-21", end: "2026-04-20" }, 10, true),
+  ])
 
-const categoryData: CategoryDataPoint[] = [
-  { category: "Cookies",   revenue: 156200, margin_pct: 38.4, units_sold: 4210 },
-  { category: "Chips",     revenue: 142800, margin_pct: 31.2, units_sold: 3870 },
-  { category: "Beverages", revenue: 118500, margin_pct: 44.7, units_sold: 5640 },
-  { category: "Dairy",     revenue: 98500,  margin_pct: 19.1, units_sold: 2112 },
-]
+  const chartData: RevenueDataPoint[] = revenueVsCost.map((r) => ({
+    bucket: r.bucket,
+    revenue: r.revenue,
+    wholesale_cost: r.wholesale_cost,
+    gross_margin: r.gross_margin,
+    gross_margin_pct: r.gross_margin_pct,
+  }))
 
-const regionData: RegionDataPoint[] = [
-  { region: "Northeast",  revenue: 312400, units_sold: 8420, orders: 2810 },
-  { region: "Southeast",  revenue: 278600, units_sold: 7130, orders: 2390 },
-  { region: "Midwest",    revenue: 241800, units_sold: 6540, orders: 2180 },
-  { region: "Southwest",  revenue: 198300, units_sold: 5360, orders: 1790 },
-  { region: "West",       revenue: 162500, units_sold: 4390, orders: 1460 },
-]
+  const categoryData: CategoryDataPoint[] = categoryBreakdown.map((r) => ({
+    category: r.category,
+    revenue: r.revenue,
+    margin_pct: r.margin_pct,
+    units_sold: r.units_sold,
+  }))
 
-const marginProductData: MarginProductDataPoint[] = [
-  { product_name: "Oreo Double Stuf 20oz",      category: "Cookies",   margin_per_unit: 1.84, units_sold: 4210 },
-  { product_name: "Chips Ahoy! Chunky 13oz",    category: "Cookies",   margin_per_unit: 1.62, units_sold: 2980 },
-  { product_name: "Gatorade Thirst Quencher 32oz", category: "Beverages", margin_per_unit: 1.51, units_sold: 5640 },
-  { product_name: "Lay's Classic Party Size",   category: "Chips",     margin_per_unit: 1.38, units_sold: 3870 },
-  { product_name: "Pepperidge Farm Milano",     category: "Cookies",   margin_per_unit: 1.27, units_sold: 1830 },
-  { product_name: "Yoplait Original Strawberry",category: "Dairy",     margin_per_unit: 0.94, units_sold: 2112 },
-  { product_name: "Fritos Corn Chips 9.25oz",   category: "Chips",     margin_per_unit: 0.88, units_sold: 1560 },
-  { product_name: "Dasani Water 24pk",          category: "Beverages", margin_per_unit: 0.71, units_sold: 3290 },
-]
+  const regionData: RegionDataPoint[] = regions.map((r) => ({
+    region: r.region ?? "",
+    revenue: r.revenue,
+    units_sold: r.units_sold,
+    orders: r.orders,
+  }))
 
-const quadrantData: QuadrantProductDataPoint[] = [
-  { product_name: "Oreo Double Stuf 20oz",        category: "Cookies",   margin_per_unit: 1.84, units_sold: 4210, revenue: 156200 },
-  { product_name: "Chips Ahoy! Chunky 13oz",      category: "Cookies",   margin_per_unit: 1.62, units_sold: 2980, revenue: 98400  },
-  { product_name: "Gatorade Thirst Quencher 32oz", category: "Beverages", margin_per_unit: 1.51, units_sold: 5640, revenue: 118500 },
-  { product_name: "Lay's Classic Party Size",     category: "Chips",     margin_per_unit: 1.38, units_sold: 3870, revenue: 142800 },
-  { product_name: "Pepperidge Farm Milano",       category: "Cookies",   margin_per_unit: 1.27, units_sold: 1830, revenue: 61200  },
-  { product_name: "Yoplait Original Strawberry",  category: "Dairy",     margin_per_unit: 0.94, units_sold: 2112, revenue: 98500  },
-  { product_name: "Fritos Corn Chips 9.25oz",     category: "Chips",     margin_per_unit: 0.88, units_sold: 1560, revenue: 47300  },
-  { product_name: "Dasani Water 24pk",            category: "Beverages", margin_per_unit: 0.71, units_sold: 3290, revenue: 72100  },
-]
+  const marginProductData: MarginProductDataPoint[] = productMargins.map((r) => ({
+    product_name: r.product_name,
+    category: r.category,
+    margin_per_unit: r.margin_per_unit,
+    units_sold: r.units_sold,
+  }))
 
-const forecastData: ForecastDataPoint[] = [
-  { category: "Cookies",   forecasted_revenue: 148000, actual_revenue: 156200, revenue_delta_pct:  5.5 },
-  { category: "Chips",     forecasted_revenue: 151000, actual_revenue: 142800, revenue_delta_pct: -5.4 },
-  { category: "Beverages", forecasted_revenue: 110000, actual_revenue: 118500, revenue_delta_pct:  7.7 },
-  { category: "Dairy",     forecasted_revenue: 105000, actual_revenue:  98500, revenue_delta_pct: -6.2 },
-]
+  const quadrantData: QuadrantProductDataPoint[] = productScatter.map((r) => ({
+    product_name: r.product_name,
+    category: r.category,
+    margin_per_unit: r.margin_per_unit,
+    units_sold: r.units_sold,
+    revenue: r.revenue,
+  }))
 
-const channelMixData: ChannelMixData = {
-  pos: [
-    { category: "Cookies",   revenue: 112000, share_pct: 42 },
-    { category: "Chips",     revenue: 98000,  share_pct: 37 },
-    { category: "Beverages", revenue: 61000,  share_pct: 23 },
-    { category: "Dairy",     revenue: 71000,  share_pct: 27 },
-  ],
-  ecommerce: [
-    { category: "Cookies",   revenue: 44200,  share_pct: 17 },
-    { category: "Chips",     revenue: 44800,  share_pct: 17 },
-    { category: "Beverages", revenue: 57500,  share_pct: 22 },
-    { category: "Dairy",     revenue: 27500,  share_pct: 10 },
-  ],
-}
+  const forecastData: ForecastDataPoint[] = forecast.map((r) => ({
+    category: r.category ?? "",
+    forecasted_revenue: r.forecasted_revenue,
+    actual_revenue: r.actual_revenue,
+    revenue_delta_pct: r.revenue_delta_pct ?? 0,
+  }))
 
-const topProductsData: TopProductRow[] = [
-  { product_name: "Oreo Double Stuf 20oz",         category: "Cookies",   revenue: 156200, units_sold: 4210, growth_pct:  12.5 },
-  { product_name: "Lay's Classic Party Size",      category: "Chips",     revenue: 142800, units_sold: 3870, growth_pct:   8.2 },
-  { product_name: "Gatorade Thirst Quencher 32oz", category: "Beverages", revenue: 118500, units_sold: 5640, growth_pct:   6.1 },
-  { product_name: "Chips Ahoy! Chunky 13oz",       category: "Cookies",   revenue: 98400,  units_sold: 2980, growth_pct:   4.7 },
-  { product_name: "Yoplait Original Strawberry",   category: "Dairy",     revenue: 98500,  units_sold: 2112, growth_pct:  -2.1 },
-  { product_name: "Pepperidge Farm Milano",        category: "Cookies",   revenue: 61200,  units_sold: 1830, growth_pct:   9.3 },
-  { product_name: "Dasani Water 24pk",             category: "Beverages", revenue: 72100,  units_sold: 3290, growth_pct:  -4.8 },
-  { product_name: "Fritos Corn Chips 9.25oz",      category: "Chips",     revenue: 47300,  units_sold: 1560, growth_pct:  -1.2 },
-  { product_name: "Tropicana OJ 52oz",             category: "Beverages", revenue: 44200,  units_sold: 1420, growth_pct:  15.3 },
-  { product_name: "Kraft Singles American",        category: "Dairy",     revenue: 38900,  units_sold: 1190, growth_pct:   3.6 },
-]
+  const channelMixData: ChannelMixData = {
+    pos: categoryMix.pos ?? [],
+    ecommerce: categoryMix.ecommerce ?? [],
+  }
 
-export default function Home() {
+  const topProductsData: TopProductRow[] = topProducts.map((r) => ({
+    product_name: r.product_name,
+    category: r.category,
+    revenue: r.revenue,
+    units_sold: r.units_sold,
+    growth_pct: r.growth_pct ?? 0,
+  }))
+
   return (
     <main className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 bg-muted py-4 shadow-sm">
@@ -117,7 +108,7 @@ export default function Home() {
       </header>
       <DashboardToolbar />
       <div className="mx-auto max-w-7xl p-8">
-        <KPICards data={sampleData} />
+        <KPICards data={kpi} />
         <div className="mt-8">
           <RevenueMarginChart data={chartData} />
         </div>

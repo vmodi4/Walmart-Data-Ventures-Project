@@ -1,25 +1,33 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Search, User } from "lucide-react"
-
-const ALL_PRODUCTS = [
-  "Oreo Double Stuf 20oz",
-  "Chips Ahoy! Chunky 13oz",
-  "Gatorade Thirst Quencher 32oz",
-  "Lay's Classic Party Size",
-  "Pepperidge Farm Milano",
-  "Yoplait Original Strawberry",
-  "Fritos Corn Chips 9.25oz",
-  "Dasani Water 24pk",
-]
+import { api } from "@/lib/api"
 
 export function DashboardToolbar() {
   const [query, setQuery] = useState("")
   const [focused, setFocused] = useState(false)
+  const [products, setProducts] = useState<string[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .topProducts(undefined, 50)
+      .then((rows) => {
+        if (cancelled) return
+        setProducts(rows.map((r) => r.product_name))
+      })
+      .catch(() => {
+        // Backend unreachable — leave the typeahead empty rather than seeding
+        // fake names. Search still works as plain input.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const suggestions = query.trim().length > 0
-    ? ALL_PRODUCTS.filter((p) =>
+    ? products.filter((p) =>
         p.toLowerCase().includes(query.toLowerCase())
       )
     : []

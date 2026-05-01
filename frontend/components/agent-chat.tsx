@@ -5,6 +5,7 @@ import { Sparkles, Send, User, Bot } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Spinner } from "@/components/ui/spinner"
+import { api } from "@/lib/api"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -19,48 +20,6 @@ interface AgentMessage {
 }
 
 type Message = UserMessage | AgentMessage
-
-// ── Mock insights ──────────────────────────────────────────────────────────────
-
-const MOCK_INSIGHTS: Record<string, string> = {
-  forecast:
-    "Two categories missed forecast last period. Chips came in 5.4% below target ($142.8K vs $151K forecast), and Dairy fell 6.2% short ($98.5K vs $105K). The shortfall in both categories correlates with wholesale cost increases that weren't passed through to retail pricing. Cookies (+5.5%) and Beverages (+7.7%) both beat forecast and offset most of the shortfall at the portfolio level.",
-  top:
-    "Your top performers by revenue are Oreo Double Stuf 20oz ($156.2K, +12.5% growth), Lay's Classic Party Size ($142.8K, +8.2%), and Gatorade Thirst Quencher 32oz ($118.5K, +6.1%). Oreo also leads on margin per unit at $1.84, making it the clear flagship SKU. Worth noting: Tropicana OJ 52oz, while smaller in absolute revenue ($44.2K), posted the highest growth rate in the portfolio at +15.3%.",
-  region:
-    "The Northeast leads with $312.4K in revenue across 2,810 orders, followed by the Southeast at $278.6K. The West is your smallest region at $162.5K but has the highest revenue per order ($111.30 vs $104.40 in the Midwest). Expanding distribution in the West could yield outsized returns given the higher basket size.",
-  margin:
-    "Beverages has the strongest margin profile at 44.7%, driven by Gatorade ($1.51 margin per unit). Cookies follows at 38.4%. Dairy is your weak spot at 19.1% — Yoplait Original Strawberry contributes most of the volume but only $0.94 margin per unit. Consider repricing Dairy or shifting promotional spend toward higher-margin categories.",
-  channel:
-    "Your channel mix is heavily weighted to POS for Cookies (42% share) and Chips (37% share), while Beverages and Dairy are more balanced. E-commerce is underdeveloped for Cookies — only 17% share despite Cookies being your top revenue category. Investing in e-commerce visibility for Oreo and Chips Ahoy could unlock meaningful incremental volume.",
-  default:
-    "Looking at your dashboard, the headline numbers are strong: $1.25M total revenue, 15.8K units sold, and an AI-rescued revenue contribution of $187K (15% of total). The biggest opportunity is closing the forecast gap in Chips and Dairy, while doubling down on Cookies and Beverages where you're already exceeding plan. Northeast and Southeast continue to be your revenue engine, but the West offers the best per-order economics.",
-}
-
-function generateInsight(prompt: string): string {
-  const lower = prompt.toLowerCase()
-  if (lower.includes("forecast") || lower.includes("miss") || lower.includes("target")) {
-    return MOCK_INSIGHTS.forecast
-  }
-  if (lower.includes("top") || lower.includes("best") || lower.includes("performer") || lower.includes("growth")) {
-    return MOCK_INSIGHTS.top
-  }
-  if (lower.includes("region") || lower.includes("northeast") || lower.includes("west") || lower.includes("geo")) {
-    return MOCK_INSIGHTS.region
-  }
-  if (lower.includes("margin") || lower.includes("profit")) {
-    return MOCK_INSIGHTS.margin
-  }
-  if (lower.includes("channel") || lower.includes("ecommerce") || lower.includes("pos") || lower.includes("mix")) {
-    return MOCK_INSIGHTS.channel
-  }
-  return MOCK_INSIGHTS.default
-}
-
-async function mockFetch(prompt: string): Promise<string> {
-  await new Promise((r) => setTimeout(r, 1200))
-  return generateInsight(prompt)
-}
 
 // ── Suggested prompts ──────────────────────────────────────────────────────────
 
@@ -90,8 +49,14 @@ export function AgentChat() {
     setLoading(true)
 
     try {
-      const reply = await mockFetch(text)
-      setMessages((prev) => [...prev, { role: "agent", text: reply }])
+      const response = await api.askAgent(text)
+      setMessages((prev) => [...prev, { role: "agent", text: response.answer }])
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "Unknown error"
+      setMessages((prev) => [
+        ...prev,
+        { role: "agent", text: `The agent couldn't reach the backend (${detail}). Make sure the FastAPI server is running on the configured base URL.` },
+      ])
     } finally {
       setLoading(false)
     }
